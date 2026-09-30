@@ -33,6 +33,8 @@ becomes whatever `opencode` helps build later.
 | Data | **Full nuke** — all partitions incl. `/home` | User confirmed; backups live in git (idlevorn-backup et al.) |
 | Secrets | Never in repo | WiFi joined via `iwctl` before the script runs; opencode auth is a manual `opencode auth login` after first boot |
 | Filesystem | ext4, **4G** ESP at `/boot` + rest `/` | 4G holds both the OS kernels and the 1.3G archiso live tree; otherwise matches current XPS topology and systemd-boot |
+| Unattended mode | `--yes` + `OS_DISK`/`OS_TZ`/`OS_USER_PASS`/`OS_REPO_URL`/`OS_INSTALL_SRC` env overrides | Scripted resets; interactive by default |
+| Validation | `bash -n` + line-review checklist; first real run from USB is the acceptance test (user opted out of a QEMU harness) | USB ISO is the recovery path for a failed run |
 | Name | `os` | User: minimalist, doesn't care |
 
 ## Repo layout
@@ -104,19 +106,16 @@ Run as root from the ISO's live environment:
 
 ## Validation
 
-- **QEMU gate:** boot the same `ARCH_202608` ISO against a qcow2 disk, run
-  `install.sh`, assert: VM reboots into `os`, opencode binary exists under
-  `/home/viper/.opencode/bin`, repo cloned at `/home/viper/os`, `viper` can
-  log in. **Then prove self-perpetuation:** in the same VM run `os-reset` →
-  live env boots from the ESP → `install.sh` re-runs offline from its ESP
-  copy. Only after the full VM cycle passes does the script touch the XPS.
-  (VM needs WiFi faking — QEMU user-net NAT + a wired-ish `systemd-networkd`
-  test or `iwctl`-less DHCP via `enp0s3`; the script's network preflight
-  accepts any routable interface, WiFi is just the XPS reality.)
+- `bash -n` + a line-by-line review checklist (heredoc quoting, variable
+  definition order, fallible-command handlers, no-secrets scan).
+- The **first real run from the USB is the acceptance test** — the user
+  opted out of a QEMU harness; recovery from any failed run is "boot the
+  USB again and retry".
 - **Acceptance:** the real reset on the XPS is the acceptance test.
 
 ## Non-goals (v1)
 
+- No QEMU/test harness — kept out of scope by user decision
 - No custom ISO build (archiso/mkarchiso) — the ESP copies the stock live
   tree; nothing is rebuilt, just relocated
 - No offline package preseeding — network is required for pacstrap
