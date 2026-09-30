@@ -16,7 +16,7 @@
 - Hostname `os`; user `viper` (wheel, zsh); root locked; loader `timeout 1`, default `os.conf`
 - archiso boot entry MUST carry `copytoram` (live env must be RAM-resident so the wipe is legal)
 - `install.sh` defaults to interactive; unattended only via `--yes` + env: `OS_DISK`, `OS_YES`, `OS_TZ`, `OS_USER_PASS`, `OS_REPO_URL`, `OS_INSTALL_SRC`
-- `shellcheck` clean, `bash -n` clean before every commit of `install.sh`
+- `bash -n` clean + the Task 1 review checklist passed before every commit of `install.sh` (shellcheck optional if already installed — never a host dependency)
 - **NEVER run `install.sh` on the host XPS as a test** — the first real run happens from the bootable USB, by the user (preflight also refuses to run outside a live env)
 - Every commit message ends with `Co-Authored-By: Claude Code <noreply@anthropic.com>`
 
@@ -281,9 +281,9 @@ main() {
 main "$@"
 ```
 
-- [ ] **Step 2: Lint**
+- [ ] **Step 2: Syntax check**
 
-Run: `bash -n install.sh && shellcheck install.sh` (install shellcheck first if missing: `sudo pacman -S --needed shellcheck`)
+Run: `bash -n install.sh` (plus `shellcheck install.sh` if it happens to be installed)
 Expected: no output (clean).
 
 - [ ] **Step 3: Negative test on the host (safety proof — nothing destructive runs)**
