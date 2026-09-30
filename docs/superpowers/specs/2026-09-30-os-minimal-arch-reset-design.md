@@ -5,9 +5,16 @@
 ## What this is
 
 A public GitHub repo (`ViperBlackSkull/os`) that *is* the OS, Omarchy-style.
-The reset ritual replays it onto bare metal from the vanilla Arch ISO:
+**Resets are standalone — no USB needed.** The ESP carries both the OS and
+the archiso live tree, so a reset is one command on the running system:
 
-> 1. F12 → boot the existing `ARCH_202608` USB
+> **Reset:** `sudo os-reset` → reboots into the live env (loaded to RAM
+> from the ESP via `copytoram`) → `iwctl` connect → run `install.sh`
+> (offline copy on the ESP, or curl from GitHub) → full nuke → reinstall.
+
+**First install ever** (one time) uses the existing `ARCH_202608` USB:
+
+> 1. F12 → boot the USB
 > 2. `iwctl` → connect `EscapeTwogether`
 > 3. `curl -fsSL https://raw.githubusercontent.com/ViperBlackSkull/os/main/install.sh | bash`
 > 4. Reboot → TTY login as `viper` → `opencode auth login` → build the rest
@@ -21,11 +28,11 @@ becomes whatever `opencode` helps build later.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Reset medium | Vanilla Arch ISO, unmodified | Zero build pipeline; ISO already ships git/curl/pacstrap |
+| Reset medium | **Self-hosted** — archiso tree lives on the ESP alongside the OS; USB only for the very first install | Zero build pipeline; the USB (an extracted archiso on vfat) already proves the layout; `copytoram` + 62G RAM leaves the disk free to wipe; each install re-lays the reset entry (self-perpetuating) |
 | Installer hosting | Public repo, `curl \| bash` | No credentials needed to fetch; nothing sensitive in repo |
 | Data | **Full nuke** — all partitions incl. `/home` | User confirmed; backups live in git (idlevorn-backup et al.) |
 | Secrets | Never in repo | WiFi joined via `iwctl` before the script runs; opencode auth is a manual `opencode auth login` after first boot |
-| Filesystem | ext4, **4G** ESP at `/boot` + rest `/` | 4G now so a future v2 can hold the ISO on the ESP; otherwise matches current XPS topology and systemd-boot |
+| Filesystem | ext4, **4G** ESP at `/boot` + rest `/` | 4G holds both the OS kernels and the 1.3G archiso live tree; otherwise matches current XPS topology and systemd-boot |
 | Name | `os` | User: minimalist, doesn't care |
 
 ## Repo layout
@@ -67,14 +74,23 @@ Run as root from the ISO's live environment:
    new root so the fresh system auto-joins the same network (the user already
    authenticated in the ISO's RAM via `iwctl`; the password transits
    RAM→disk, never the repo); a `wlan.network` DHCP config via heredoc.
-8. **Bootloader** — `bootctl install`; loader entry for
-   `vmlinuz-linux` + `intel-ucode` initrd + root by UUID; menu timeout 0
-   (single OS, same as today).
-9. **Userland pre-install** — as `viper`, inside the new root: install
-   opencode via its official script to `/home/viper/.opencode/bin`, clone
-   `ViperBlackSkull/os` to `/home/viper/os`. No firstboot unit needed.
-10. **Finish** — motd: *"os is alive. `opencode auth login`, then build
-    the rest."* Unmount, tell the user to pull the USB, `reboot` on Enter.
+8. **Bootloader + reset entry** — `bootctl install`; loader entry for
+   `vmlinuz-linux` + `intel-ucode` initrd + root by UUID; menu timeout 1
+   with `os` as default. Then the standalone-reset layer: copy the live
+   env's `arch/` tree (1.3G, from `/run/archiso/bootmnt`) plus the archiso
+   kernel/initrd onto the ESP; write `loader/entries/archiso.conf` with
+   `options archisodevice=UUID=<ESP> archisobasedir=arch copytoram`; copy
+   `install.sh` itself to the ESP root as the offline re-run path.
+9. **`os-reset` helper** — 3-line script installed to
+   `/usr/local/bin/os-reset` on the new system: `bootctl set-default
+   archiso.conf` + `reboot`. Running it mid-reset is safe: the live env is
+   RAM-resident, and every (re)install resets the default back to `os`.
+10. **Userland pre-install** — as `viper`, inside the new root: install
+    opencode via its official script to `/home/viper/.opencode/bin`, clone
+    `ViperBlackSkull/os` to `/home/viper/os`. No firstboot unit needed.
+11. **Finish** — motd: *"os is alive. `opencode auth login`, then build
+    the rest. Reset anytime: `sudo os-reset`."* Unmount, tell the user to
+    pull the USB (first install only), `reboot` on Enter.
 
 ## Error handling
 
@@ -91,16 +107,18 @@ Run as root from the ISO's live environment:
 - **QEMU gate:** boot the same `ARCH_202608` ISO against a qcow2 disk, run
   `install.sh`, assert: VM reboots into `os`, opencode binary exists under
   `/home/viper/.opencode/bin`, repo cloned at `/home/viper/os`, `viper` can
-  log in. Only after the VM passes does the script touch the XPS.
+  log in. **Then prove self-perpetuation:** in the same VM run `os-reset` →
+  live env boots from the ESP → `install.sh` re-runs offline from its ESP
+  copy. Only after the full VM cycle passes does the script touch the XPS.
+  (VM needs WiFi faking — QEMU user-net NAT + a wired-ish `systemd-networkd`
+  test or `iwctl`-less DHCP via `enp0s3`; the script's network preflight
+  accepts any routable interface, WiFi is just the XPS reality.)
 - **Acceptance:** the real reset on the XPS is the acceptance test.
 
 ## Non-goals (v1)
 
-- No custom ISO (archiso) — may graduate to it later for auto-run installs
-- No "reset directly" boot entry yet — v2 idea: copy the ISO onto the 4G ESP
-  + a systemd-boot entry that boots it (archiso `img_dev`/`img_loop`), making
-  reset one reboot away with no USB; the 4G ESP is sized now so v2 is a
-  script edit, not a repartition
-- No offline package preseeding — WiFi is required for pacstrap
+- No custom ISO build (archiso/mkarchiso) — the ESP copies the stock live
+  tree; nothing is rebuilt, just relocated
+- No offline package preseeding — network is required for pacstrap
 - No display server / WM / desktop — TTY only
 - No dotfile framework, no oh-my-zsh — plain zshrc; the OS grows in public
